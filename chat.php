@@ -1,10 +1,11 @@
-﻿<?php
+<?php
 
 require_once __DIR__ . '/config/db.php';
 require_once __DIR__ . '/config/constants.php';
 require_once __DIR__ . '/helpers/status.php';
 require_once __DIR__ . '/helpers/data.php';
 
+ob_start();
 session_start();
 
 $isEmbedded = (string) ($_GET['embed'] ?? $_POST['embed'] ?? '') === '1';
@@ -58,6 +59,11 @@ function adminlens_chat_inventory_context(array $products): string {
 function get_ai_reply(string $msg, PDO $pdo): string {
     try {
         $products = get_all_products();
+        $fastReply = adminlens_try_fast_inventory_answer($products, $msg);
+        if ($fastReply !== null) {
+            return $fastReply;
+        }
+
         $best = $products[0] ?? [];
         $least = $products === [] ? [] : ($products[array_key_last($products)] ?? []);
         $lowStock = array_values(array_filter($products, static function (array $product): bool {
@@ -66,19 +72,20 @@ function get_ai_reply(string $msg, PDO $pdo): string {
             return $stock > 0 && $stock < $reorder;
         }));
         $outOfStock = array_values(array_filter($products, static fn(array $product): bool => (int) ($product['stock_on_hand'] ?? 0) === 0));
+        $context = adminlens_build_targeted_inventory_context($products, $msg, 8);
 
         $system_prompt =
             "You are AdminLens, a fast boutique inventory assistant.\n"
-            . "Use only the inventory data below. Never invent products, SKUs, prices, stock, reorder points, or sales.\n"
+            . "Use only the inventory data below.\n"
+            . "Never invent products, SKUs, prices, stock, reorder points, or sales.\n"
             . "If an item is missing from the list, say it is not in the active inventory.\n"
-            . "Keep answers concise and practical unless the user asks for detail.\n"
+            . "Keep answers short and practical by default.\n"
             . "Always use exact SKUs and product names.\n\n"
             . "Best seller: " . (string) ($best['sku'] ?? 'N/A') . ' | ' . (string) ($best['product_name'] ?? 'N/A') . ' | sold ' . (int) ($best['units_sold'] ?? 0) . "\n"
             . "Least purchased: " . (string) ($least['sku'] ?? 'N/A') . ' | ' . (string) ($least['product_name'] ?? 'N/A') . ' | sold ' . (int) ($least['units_sold'] ?? 0) . "\n"
             . 'Low stock count: ' . count($lowStock) . "\n"
             . 'Out of stock count: ' . count($outOfStock) . "\n\n"
-            . "Inventory snapshot:\n"
-            . adminlens_chat_inventory_context($products);
+            . $context;
 
         if (AI_PROVIDER === 'openai') {
             $body = json_encode([
@@ -93,7 +100,7 @@ function get_ai_reply(string $msg, PDO $pdo): string {
             $ch = curl_init('https://api.openai.com/v1/chat/completions');
             curl_setopt_array($ch, [
                 CURLOPT_RETURNTRANSFER => true, CURLOPT_POST => true,
-                CURLOPT_POSTFIELDS => $body, CURLOPT_TIMEOUT => 20,
+                CURLOPT_POSTFIELDS => $body, CURLOPT_TIMEOUT => 30,
                 CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'Authorization: Bearer ' . OPENAI_API_KEY],
             ]);
             $resp = curl_exec($ch); $st = curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
@@ -105,8 +112,9 @@ function get_ai_reply(string $msg, PDO $pdo): string {
                 'model' => OLLAMA_MODEL,
                 'stream' => false,
                 'options' => [
-                    'temperature' => 0.2,
-                    'num_predict' => 220,
+                    'temperature' => 0.1,
+                    'num_predict' => 150,
+                    'top_p' => 0.9,
                 ],
                 'messages' => [
                     ['role' => 'system', 'content' => $system_prompt],
@@ -116,8 +124,12 @@ function get_ai_reply(string $msg, PDO $pdo): string {
             $ch = curl_init(OLLAMA_URL . '/api/chat');
             curl_setopt_array($ch, [
                 CURLOPT_RETURNTRANSFER => true, CURLOPT_POST => true,
-                CURLOPT_POSTFIELDS => $body, CURLOPT_TIMEOUT => 20,
-                CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+                CURLOPT_POSTFIELDS => $body,
+                CURLOPT_CONNECTTIMEOUT => OLLAMA_CONNECT_TIMEOUT,
+                CURLOPT_TIMEOUT => OLLAMA_RESPONSE_TIMEOUT,
+                CURLOPT_SSL_VERIFYPEER => false,
+                CURLOPT_SSL_VERIFYHOST => false,
+                CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'Accept: application/json', 'Expect:'],
             ]);
             $resp = curl_exec($ch); $st = curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
             if ($st !== 200) throw new Exception("Ollama HTTP $st");
@@ -125,7 +137,8 @@ function get_ai_reply(string $msg, PDO $pdo): string {
             return $data['message']['content'] ?? '';
         }
     } catch (Exception $e) {
-        return '⚠ Error: ' . $e->getMessage();
+        $products = get_all_products();
+        return adminlens_build_inventory_fallback_reply($products, $msg);
     }
 }
 
@@ -253,8 +266,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'send_ajax') {
             'timestamp' => $ts,
         ];
 
+        session_write_close();
+
         global $pdo;
         $reply = get_ai_reply($msg, $pdo);
+
+        session_start();
 
         $_SESSION['conversations'][$cid]['messages'][] = [
             'role'      => 'assistant',
@@ -262,12 +279,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'send_ajax') {
             'timestamp' => date('g:i A'),
         ];
 
+        if (ob_get_length()) {
+            ob_clean();
+        }
+
         echo json_encode([
             'reply' => $reply,
             'conversation_id' => $cid,
             'timestamp' => date('g:i A'),
         ]);
         exit;
+    }
+
+    if (ob_get_length()) {
+        ob_clean();
     }
 
     echo json_encode(['error' => 'Message is required.']);
@@ -1115,10 +1140,13 @@ $suggested = [
 </div><!-- /app-wrapper -->
 
 <script>
+  var isEmbedded = <?= $isEmbedded ? 'true' : 'false' ?>;
+  var chatBaseUrl = <?= json_encode(adminlens_chat_url()) ?>;
+  var chatSelectUrlBase = <?= json_encode(adminlens_chat_url(['action' => 'select'])) ?>;
+  var ollamaWarmupUrl = <?= json_encode('api/ollama_warmup.php') ?>;
+  var apiChatUrl = <?= json_encode('api/chat.php') ?>;
+
   (function() {
-    var isEmbedded = <?= $isEmbedded ? 'true' : 'false' ?>;
-    var chatBaseUrl = <?= json_encode(adminlens_chat_url()) ?>;
-    var chatSelectUrlBase = <?= json_encode(adminlens_chat_url(['action' => 'select'])) ?>;
 
     if (isEmbedded) {
       Array.prototype.forEach.call(document.querySelectorAll('form'), function(form) {
@@ -1144,6 +1172,20 @@ $suggested = [
 
     var el = document.getElementById('messages-area');
     if (el) el.scrollTop = el.scrollHeight;
+
+    if (window.fetch) {
+      window.setTimeout(function() {
+        fetch(ollamaWarmupUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
+          },
+          body: JSON.stringify({ warmup: true })
+        }).catch(function() {
+        });
+      }, 150);
+    }
   })();
 
   function escapeHtml(text) {
@@ -1198,6 +1240,7 @@ $suggested = [
   var form = document.getElementById('chat-form');
   var sendBtn = document.getElementById('send-btn');
   var typingStatus = document.getElementById('typing-status');
+  var CHAT_REQUEST_TIMEOUT_MS = <?= json_encode((AI_PROVIDER === 'ollama' ? max(65000, (OLLAMA_RESPONSE_TIMEOUT + 5) * 1000) : 40000)) ?>;
 
   if (form && ta && sendBtn) {
     form.addEventListener('submit', function(e) {
@@ -1221,40 +1264,52 @@ $suggested = [
       }
 
       if (typingStatus) {
-        typingStatus.textContent = 'Usually responds in about 5-10 seconds.';
+        typingStatus.textContent = 'AdminLens is preparing a reply...';
       }
 
       ta.disabled = true;
       sendBtn.disabled = true;
       sendBtn.textContent = '...';
 
-      var data = new FormData(form);
-      data.set('action', 'send_ajax');
-      data.set('message', message);
+      var controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      var timeoutId = controller ? window.setTimeout(function() {
+        controller.abort();
+      }, CHAT_REQUEST_TIMEOUT_MS) : null;
 
-      fetch(chatBaseUrl, {
+      fetch(apiChatUrl, {
         method: 'POST',
-        body: data,
         headers: {
+          'Content-Type': 'application/json',
           'X-Requested-With': 'XMLHttpRequest'
-        }
+        },
+        body: JSON.stringify({ message: message }),
+        signal: controller ? controller.signal : undefined
       })
       .then(function(response) { return response.json(); })
       .then(function(payload) {
         var bubble = document.getElementById('thinking-row');
         if (bubble) bubble.remove();
+        if (timeoutId) window.clearTimeout(timeoutId);
 
-        if (payload && payload.reply) {
+        if (payload && payload.error) {
+          appendMessage('assistant', 'Error: ' + payload.error, payload.timestamp || new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }));
+          if (typingStatus) typingStatus.textContent = '';
+        } else if (payload && payload.reply) {
           appendMessage('assistant', payload.reply, payload.timestamp || new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }));
           if (typingStatus) typingStatus.textContent = '';
         } else {
           appendMessage('assistant', 'Unable to generate a response right now.', new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }));
         }
       })
-      .catch(function() {
+      .catch(function(error) {
         var bubble = document.getElementById('thinking-row');
         if (bubble) bubble.remove();
-        appendMessage('assistant', 'Unable to contact the inventory assistant.', new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }));
+        if (timeoutId) window.clearTimeout(timeoutId);
+        if (error && error.name === 'AbortError') {
+          appendMessage('assistant', 'The inventory assistant is taking longer than expected. Please try again.', new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }));
+        } else {
+          appendMessage('assistant', 'Unable to contact the inventory assistant.', new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }));
+        }
       })
       .finally(function() {
         ta.disabled = false;

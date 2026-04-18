@@ -1,10 +1,10 @@
-﻿<?php
+<?php
 
-define('AI_PROVIDER', getenv('AI_PROVIDER') ?: 'ollama');
-define('OPENAI_API_KEY', getenv('OPENAI_API_KEY') ?: 'AIzaSyAQkS82DRHSpXE65NItpky5MHsghq86Vmc');
-define('OPENAI_MODEL', getenv('OPENAI_MODEL') ?: 'gpt-4o-mini');
-define('OLLAMA_URL', getenv('OLLAMA_URL') ?: 'http://localhost:11434');
-define('OLLAMA_MODEL', getenv('OLLAMA_MODEL') ?: 'llama3');
+define('AI_PROVIDER', 'ollama');
+define('OLLAMA_API_KEY', '179b842818724c3a88277c4592c1580a.hsl4feme_s_j1g6KSkpIkowM');
+define('OLLAMA_URL', 'http://127.0.0.1:11434');
+define('OLLAMA_MODEL', 'llama3.2:3b');
+define('OLLAMA_CONNECT_TIMEOUT', 10);
+define('OLLAMA_RESPONSE_TIMEOUT', 120);
 define('CHARTS_DIR', __DIR__ . '/../assets/charts/');
-define('PYTHON_CMD', getenv('PYTHON_CMD') ?: 'C:\\Users\\ashya\\AppData\\Local\\Programs\\Python\\Python314\\python.exe');
-
+define('PYTHON_CMD', 'python');

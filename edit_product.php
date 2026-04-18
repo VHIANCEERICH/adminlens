@@ -16,9 +16,27 @@ if (!$product) {
 }
 
 $values = [
+    'product_type' => (string) ($product['product_type'] ?? ''),
     'stock_on_hand' => (string) ($product['stock_on_hand'] ?? 0),
     'price' => (string) ($product['price'] ?? '0.00'),
 ];
+
+$product_types = [];
+
+try {
+    foreach (get_all_products(true) as $item) {
+        $type = trim((string) ($item['product_type'] ?? ''));
+        if ($type !== '') {
+            $product_types[$type] = true;
+        }
+    }
+
+    $product_types = array_keys($product_types);
+    natcasesort($product_types);
+    $product_types = array_values($product_types);
+} catch (Throwable $e) {
+    $product_types = [];
+}
 
 function adminlens_replace_product_image(string $sku, array $file): void
 {
@@ -45,25 +63,37 @@ function adminlens_replace_product_image(string $sku, array $file): void
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $selected_product_type = trim((string) ($_POST['product_type'] ?? $values['product_type']));
+    $new_product_type = trim((string) ($_POST['product_type_new'] ?? ''));
+    $values['product_type'] = $new_product_type !== '' ? $new_product_type : $selected_product_type;
     $values['stock_on_hand'] = trim((string) ($_POST['stock_on_hand'] ?? $values['stock_on_hand']));
     $values['price'] = trim((string) ($_POST['price'] ?? $values['price']));
 
-    try {
-        $pdo = require __DIR__ . '/config/db.php';
-        $stmt = $pdo->prepare('UPDATE products SET stock_on_hand = ?, price = ? WHERE sku = ?');
-        $stmt->execute([
-            (int) $values['stock_on_hand'],
-            (float) $values['price'],
-            $sku,
-        ]);
+    if ($values['product_type'] === '') {
+        $errors[] = 'Product Type is required.';
+    }
 
-        if (!empty($_FILES['product_image']['name']) && (int) ($_FILES['product_image']['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK) {
+    try {
+        if (!$errors) {
+            $pdo = require __DIR__ . '/config/db.php';
+            $stmt = $pdo->prepare('UPDATE products SET product_type = ?, stock_on_hand = ?, price = ? WHERE sku = ?');
+            $stmt->execute([
+                $values['product_type'],
+                (int) $values['stock_on_hand'],
+                (float) $values['price'],
+                $sku,
+            ]);
+        }
+
+        if (!$errors && !empty($_FILES['product_image']['name']) && (int) ($_FILES['product_image']['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK) {
             adminlens_replace_product_image($sku, $_FILES['product_image']);
         }
 
-        generate_all_charts();
-        header('Location: inventory.php');
-        exit;
+        if (!$errors) {
+            generate_all_charts();
+            header('Location: inventory.php');
+            exit;
+        }
     } catch (Throwable $e) {
         $errors[] = 'Unable to update this product right now.';
     }
@@ -122,6 +152,34 @@ $status = (string) ($product['status'] ?? 'OK');
 
                         <form method="POST" enctype="multipart/form-data" class="form-grid">
                             <input type="hidden" name="sku" value="<?= htmlspecialchars($sku) ?>">
+                            <?php
+                            $selectedProductType = in_array($values['product_type'], $product_types, true) ? $values['product_type'] : '';
+                            $customProductType = $selectedProductType === '' ? $values['product_type'] : '';
+                            ?>
+
+                            <div class="form-field">
+                                <label for="product_type">Product Type</label>
+                                <div class="product-type-fields">
+                                    <select id="product_type" class="chat-input" name="product_type">
+                                        <option value="">Select an existing type</option>
+                                        <?php foreach ($product_types as $type): ?>
+                                            <option value="<?= htmlspecialchars($type) ?>" <?= $selectedProductType === $type ? 'selected' : '' ?>>
+                                                <?= htmlspecialchars($type) ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                    <input
+                                        id="product_type_new"
+                                        class="chat-input"
+                                        type="text"
+                                        name="product_type_new"
+                                        placeholder="Or type a new product type"
+                                        value="<?= htmlspecialchars($customProductType) ?>"
+                                    >
+                                    <button type="button" class="action-btn action-btn--danger product-type-clear" id="product_type_clear">Delete</button>
+                                </div>
+                                <div class="field-help">Choose an existing type to load its name into the editable field, or type a brand-new type.</div>
+                            </div>
 
                             <div class="form-field">
                                 <label for="stock_on_hand">Stock on Hand</label>
@@ -155,6 +213,10 @@ $status = (string) ($product['status'] ?? 'OK');
                                     <td><?= htmlspecialchars((string) ($product['product_name'] ?? '')) ?></td>
                                 </tr>
                                 <tr>
+                                    <td>Product Type</td>
+                                    <td><?= htmlspecialchars((string) ($values['product_type'] !== '' ? $values['product_type'] : 'Uncategorized')) ?></td>
+                                </tr>
+                                <tr>
                                     <td>Reorder Point</td>
                                     <td><?= number_format((int) ($product['reorder_point'] ?? 0)) ?></td>
                                 </tr>
@@ -173,5 +235,29 @@ $status = (string) ($product['status'] ?? 'OK');
             </div>
         </main>
     </div>
+
+    <script>
+        (function () {
+            var typeSelect = document.getElementById('product_type');
+            var typeInput = document.getElementById('product_type_new');
+            var clearButton = document.getElementById('product_type_clear');
+            if (!typeSelect || !typeInput || !clearButton) return;
+
+            typeSelect.addEventListener('change', function () {
+                if (typeSelect.value !== '') {
+                    typeInput.value = typeSelect.value;
+                } else {
+                    typeInput.placeholder = 'Or type a new product type';
+                }
+            });
+
+            clearButton.addEventListener('click', function () {
+                typeSelect.value = '';
+                typeInput.value = '';
+                typeInput.placeholder = 'Or type a new product type';
+                typeInput.focus();
+            });
+        })();
+    </script>
 </body>
 </html>

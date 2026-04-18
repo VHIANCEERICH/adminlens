@@ -75,6 +75,10 @@ $productImage = get_product_image_url($sku);
                     <table class="detail-table">
                         <tbody>
                             <tr>
+                                <td>Product type</td>
+                                <td><?= htmlspecialchars((string) (($product['product_type'] ?? '') !== '' ? $product['product_type'] : 'Uncategorized')) ?></td>
+                            </tr>
+                            <tr>
                                 <td>Stock on hand</td>
                                 <td><?= number_format((int) ($product['stock_on_hand'] ?? 0)) ?></td>
                             </tr>

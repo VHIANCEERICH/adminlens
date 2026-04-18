@@ -7,10 +7,11 @@ require_once __DIR__ . '/helpers/archive.php';
 require_once __DIR__ . '/helpers/charts.php';
 
 $errors = [];
+$success_message = '';
 $show_add_modal = false;
 $add_values = [
-    'sku' => '',
     'product_name' => '',
+    'product_type' => '',
     'stock_on_hand' => '0',
     'price' => '0.00',
 ];
@@ -32,55 +33,194 @@ function adminlens_remove_product_files(string $sku): void
     }
 }
 
+function adminlens_slugify_product_name(string $name): string
+{
+    $slug = strtolower(trim($name));
+    $slug = preg_replace('/[^a-z0-9]+/', '-', $slug);
+    $slug = trim((string) $slug, '-');
+
+    return $slug !== '' ? $slug : 'product';
+}
+
+function adminlens_generate_next_sku_number(PDO $pdo): int
+{
+    $stmt = $pdo->query('SELECT sku FROM products');
+    $rows = $stmt->fetchAll(PDO::FETCH_COLUMN) ?: [];
+    $usedNumbers = [];
+
+    foreach ($rows as $rowSku) {
+        $rowSku = strtolower(trim((string) $rowSku));
+        if (preg_match('/-(\d+)$/', $rowSku, $matches)) {
+            $usedNumbers[(int) $matches[1]] = true;
+        }
+    }
+
+    $nextNumber = 1;
+    while (isset($usedNumbers[$nextNumber])) {
+        $nextNumber++;
+    }
+
+    return $nextNumber;
+}
+
+function adminlens_generate_next_sku(PDO $pdo, string $productName): string
+{
+    $base = adminlens_slugify_product_name($productName);
+    $nextNumber = adminlens_generate_next_sku_number($pdo);
+
+    return sprintf('%s-%03d', $base, $nextNumber);
+}
+
+function adminlens_sku_exists(PDO $pdo, string $sku): bool
+{
+    $stmt = $pdo->prepare('SELECT COUNT(*) FROM products WHERE LOWER(TRIM(sku)) = LOWER(TRIM(?))');
+    $stmt->execute([$sku]);
+
+    return (int) $stmt->fetchColumn() > 0;
+}
+
+function adminlens_product_exists(PDO $pdo, string $productName, string $productType): bool
+{
+    $stmt = $pdo->prepare(
+        'SELECT COUNT(*)
+         FROM products
+         WHERE LOWER(TRIM(product_name)) = LOWER(TRIM(?))
+           AND LOWER(TRIM(product_type)) = LOWER(TRIM(?))'
+    );
+    $stmt->execute([$productName, $productType]);
+
+    return (int) $stmt->fetchColumn() > 0;
+}
+
+if ((string) ($_GET['status'] ?? '') === 'added') {
+    $successSku = trim((string) ($_GET['sku'] ?? ''));
+    $successName = trim((string) ($_GET['name'] ?? ''));
+
+    if ($successName !== '') {
+        $success_message = 'Product "' . $successName . '" was successfully added'
+            . ($successSku !== '' ? ' with SKU ' . $successSku : '')
+            . '.';
+    } else {
+        $success_message = 'Product was successfully added.';
+    }
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && (string) ($_POST['action'] ?? '') === 'add_product') {
     $show_add_modal = true;
 
-    $add_values['sku'] = trim((string) ($_POST['sku'] ?? ''));
     $add_values['product_name'] = trim((string) ($_POST['product_name'] ?? ''));
+    $selected_product_type = trim((string) ($_POST['product_type'] ?? ''));
+    $new_product_type = trim((string) ($_POST['product_type_new'] ?? ''));
+    $add_values['product_type'] = $new_product_type !== '' ? $new_product_type : $selected_product_type;
     $add_values['stock_on_hand'] = trim((string) ($_POST['stock_on_hand'] ?? '0'));
     $add_values['price'] = trim((string) ($_POST['price'] ?? '0.00'));
 
-    $sku = $add_values['sku'];
     $product_name = $add_values['product_name'];
-    $stock_on_hand = (int) $add_values['stock_on_hand'];
-    $price = (float) $add_values['price'];
+    $product_type = $add_values['product_type'];
+    $stock_on_hand_raw = $add_values['stock_on_hand'];
+    $price_raw = $add_values['price'];
 
-    if ($sku === '' || $product_name === '') {
-        $errors[] = 'SKU and Product Name are required.';
+    if ($product_name === '') {
+        $errors[] = 'Product Name is required.';
+    }
+
+    if ($product_type === '') {
+        $errors[] = 'Product Type is required.';
+    }
+
+    if ($stock_on_hand_raw === '' || filter_var($stock_on_hand_raw, FILTER_VALIDATE_INT) === false) {
+        $errors[] = 'Stock on Hand must be a whole number.';
+    }
+
+    if ($price_raw === '' || !is_numeric($price_raw)) {
+        $errors[] = 'Unit Price must be a valid number.';
+    }
+
+    $stock_on_hand = (int) $stock_on_hand_raw;
+    $price = (float) $price_raw;
+
+    if ($stock_on_hand < 0) {
+        $errors[] = 'Stock on Hand cannot be negative.';
+    }
+
+    if ($price < 0) {
+        $errors[] = 'Unit Price cannot be negative.';
     }
 
     try {
         $pdo = require __DIR__ . '/config/db.php';
 
         if (!$errors) {
-            $stmt = $pdo->prepare(
-                'INSERT INTO products (sku, product_name, stock_on_hand, price)
-                 VALUES (?, ?, ?, ?)'
-            );
-            $stmt->execute([$sku, $product_name, $stock_on_hand, $price]);
+            if (adminlens_product_exists($pdo, $product_name, $product_type)) {
+                $errors[] = 'A product with that product name and type already exists.';
+            }
+        }
 
-            if (!empty($_FILES['product_image']['name']) && (int) ($_FILES['product_image']['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK) {
+        $sku = '';
+        $imageFile = $_FILES['product_image'] ?? null;
+        $hasImage = is_array($imageFile) && (int) ($imageFile['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE;
+        $allowed = ['png', 'jpg', 'jpeg', 'webp'];
+        $imageExt = '';
+
+        if (!$errors && $hasImage) {
+            $uploadError = (int) ($imageFile['error'] ?? UPLOAD_ERR_OK);
+
+            if ($uploadError !== UPLOAD_ERR_OK) {
+                $errors[] = 'Product image upload failed. Please try again.';
+            } else {
+                $imageExt = strtolower(pathinfo((string) ($imageFile['name'] ?? ''), PATHINFO_EXTENSION));
+                if (!in_array($imageExt, $allowed, true)) {
+                    $errors[] = 'Product image must be a PNG, JPG, JPEG, or WEBP file.';
+                }
+            }
+        }
+
+        if (!$errors) {
+            $pdo->beginTransaction();
+            $sku = adminlens_generate_next_sku($pdo, $product_name);
+
+            if (adminlens_sku_exists($pdo, $sku)) {
+                $errors[] = 'Unable to generate a unique SKU right now. Please try again.';
+            }
+        }
+
+        if (!$errors) {
+            $stmt = $pdo->prepare(
+                'INSERT INTO products (sku, product_name, product_type, stock_on_hand, price)
+                 VALUES (?, ?, ?, ?, ?)'
+            );
+            $stmt->execute([$sku, $product_name, $product_type, $stock_on_hand, $price]);
+
+            if ($hasImage && $imageExt !== '') {
                 $uploadDir = __DIR__ . '/assets/product_images/';
                 if (!is_dir($uploadDir)) {
                     mkdir($uploadDir, 0777, true);
                 }
 
                 $safeSku = preg_replace('/[^a-zA-Z0-9_-]/', '_', strtolower($sku));
-                $ext = strtolower(pathinfo((string) $_FILES['product_image']['name'], PATHINFO_EXTENSION));
-                $allowed = ['png', 'jpg', 'jpeg', 'webp'];
-
-                if (in_array($ext, $allowed, true)) {
-                    $imagePath = $uploadDir . $safeSku . '.' . $ext;
-                    move_uploaded_file((string) $_FILES['product_image']['tmp_name'], $imagePath);
+                $imagePath = $uploadDir . $safeSku . '.' . $imageExt;
+                if (!move_uploaded_file((string) $imageFile['tmp_name'], $imagePath)) {
+                    throw new RuntimeException('Unable to save uploaded product image.');
                 }
             }
 
+            $pdo->commit();
             generate_all_charts();
-            header('Location: inventory.php');
+            header('Location: inventory.php?status=added&sku=' . rawurlencode($sku) . '&name=' . rawurlencode($product_name));
             exit;
         }
+
+        if (isset($pdo) && $pdo instanceof PDO && $pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
     } catch (Throwable $e) {
-        $errors[] = 'Unable to add product. Make sure the SKU is unique and all fields are valid.';
+        if (isset($pdo) && $pdo instanceof PDO && $pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        if (!$errors) {
+            $errors[] = 'Unable to add product right now. Please check the details and try again.';
+        }
     }
 }
 
@@ -118,6 +258,16 @@ try {
     $archived_products = get_archived_products();
     $best_sku = (string) (get_best_seller()['sku'] ?? '');
     $least_sku = (string) (get_least_sold()['sku'] ?? '');
+    $product_types = [];
+    foreach (array_merge($products, $archived_products) as $product) {
+        $type = trim((string) ($product['product_type'] ?? ''));
+        if ($type !== '') {
+            $product_types[$type] = true;
+        }
+    }
+    $product_types = array_keys($product_types);
+    natcasesort($product_types);
+    $product_types = array_values($product_types);
 } catch (Throwable $e) {
     header('Location: error.php?message=' . rawurlencode('Unable to load inventory data.'));
     exit;
@@ -161,8 +311,35 @@ function adminlens_row_class(string $status): string
             <p class="page-intro">All products sorted by units sold, with stock status and direct access to each product page.</p>
 
             <div class="inventory-toolbar">
+                <div class="inventory-filters">
+                    <label class="inventory-filter">
+                        <span>Search</span>
+                        <input id="inventory-search" class="chat-input" type="search" placeholder="Search SKU, product name, or type">
+                    </label>
+                    <label class="inventory-filter">
+                        <span>Product Type</span>
+                        <select id="inventory-type-filter" class="chat-input">
+                            <option value="">All types</option>
+                            <?php foreach ($product_types as $type): ?>
+                                <option value="<?= htmlspecialchars($type) ?>"><?= htmlspecialchars($type) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </label>
+                    <label class="inventory-filter">
+                        <span>Status</span>
+                        <select id="inventory-status-filter" class="chat-input">
+                            <option value="">All statuses</option>
+                            <option value="AVAILABLE">Available</option>
+                            <option value="LOW STOCK">Low Stock</option>
+                            <option value="OUT OF STOCK">Out of Stock</option>
+                        </select>
+                    </label>
+                </div>
                 <a class="button button--secondary" href="#add-product-modal">+ Add Product</a>
             </div>
+
+            <div class="inventory-results" id="inventory-results">Showing all active products.</div>
+            <div class="inventory-empty" id="inventory-empty" hidden>No products match the current search and filters.</div>
 
             <?php if ($errors): ?>
                 <div class="alert-box" style="margin-bottom:16px;">
@@ -172,11 +349,12 @@ function adminlens_row_class(string $status): string
                 </div>
             <?php endif; ?>
 
-            <table class="data-table">
+            <table class="data-table" id="inventory-table">
                 <thead>
                     <tr>
                         <th>SKU</th>
                         <th>Product Name</th>
+                        <th>Product Type</th>
                         <th>Stock on Hand</th>
                         <th>Reorder Point</th>
                         <th>Units Sold</th>
@@ -193,8 +371,15 @@ function adminlens_row_class(string $status): string
                         $is_best = $sku === $best_sku;
                         $is_least = $sku === $least_sku;
                         $imageUrl = get_product_image_url($sku);
+                        $productType = trim((string) ($product['product_type'] ?? ''));
                         ?>
-                        <tr class="<?= adminlens_row_class($status) ?>">
+                        <tr
+                            class="<?= adminlens_row_class($status) ?> inventory-row"
+                            data-name="<?= htmlspecialchars(strtolower((string) ($product['product_name'] ?? ''))) ?>"
+                            data-sku="<?= htmlspecialchars(strtolower($sku)) ?>"
+                            data-type="<?= htmlspecialchars(strtolower($productType)) ?>"
+                            data-status="<?= htmlspecialchars($status) ?>"
+                        >
                             <td class="sku"><?= htmlspecialchars($sku) ?></td>
                             <td class="row-name">
                                 <?php if ($is_best): ?>
@@ -211,6 +396,7 @@ function adminlens_row_class(string $status): string
                                     <?= htmlspecialchars((string) ($product['product_name'] ?? 'Unnamed Product')) ?>
                                 </a>
                             </td>
+                            <td><?= htmlspecialchars($productType !== '' ? $productType : 'Uncategorized') ?></td>
                             <td><?= number_format((int) ($product['stock_on_hand'] ?? 0)) ?></td>
                             <td><?= number_format((int) ($product['reorder_point'] ?? 0)) ?></td>
                             <td><?= number_format((int) ($product['units_sold'] ?? 0)) ?></td>
@@ -248,6 +434,7 @@ function adminlens_row_class(string $status): string
                             <tr>
                                 <th>SKU</th>
                                 <th>Product Name</th>
+                                <th>Product Type</th>
                                 <th>Stock on Hand</th>
                                 <th>Reorder Point</th>
                                 <th>Units Sold</th>
@@ -260,10 +447,17 @@ function adminlens_row_class(string $status): string
                             <?php foreach ($archived_products as $product): ?>
                                 <?php
                                 $sku = (string) ($product['sku'] ?? '');
-                                $status = (string) ($product['status'] ?? 'OK');
+                                $status = (string) ($product['status'] ?? 'Ok');
                                 $imageUrl = get_product_image_url($sku);
+                                $productType = trim((string) ($product['product_type'] ?? ''));
                                 ?>
-                                <tr class="row-archived">
+                                <tr
+                                    class="row-archived inventory-row"
+                                    data-name="<?= htmlspecialchars(strtolower((string) ($product['product_name'] ?? ''))) ?>"
+                                    data-sku="<?= htmlspecialchars(strtolower($sku)) ?>"
+                                    data-type="<?= htmlspecialchars(strtolower($productType)) ?>"
+                                    data-status="<?= htmlspecialchars(strtoupper($status)) ?>"
+                                >
                                     <td class="sku"><?= htmlspecialchars($sku) ?></td>
                                     <td class="row-name">
                                         <?php if ($imageUrl): ?>
@@ -275,6 +469,7 @@ function adminlens_row_class(string $status): string
                                             <?= htmlspecialchars((string) ($product['product_name'] ?? 'Unnamed Product')) ?>
                                         </a>
                                     </td>
+                                    <td><?= htmlspecialchars($productType !== '' ? $productType : 'Uncategorized') ?></td>
                                     <td><?= number_format((int) ($product['stock_on_hand'] ?? 0)) ?></td>
                                     <td><?= number_format((int) ($product['reorder_point'] ?? 0)) ?></td>
                                     <td><?= number_format((int) ($product['units_sold'] ?? 0)) ?></td>
@@ -319,15 +514,52 @@ function adminlens_row_class(string $status): string
 
             <form method="POST" enctype="multipart/form-data" class="form-grid">
                 <input type="hidden" name="action" value="add_product">
+                <?php
+                $selectedProductType = in_array($add_values['product_type'], $product_types, true) ? $add_values['product_type'] : '';
+                $customProductType = $selectedProductType === '' ? $add_values['product_type'] : '';
+                ?>
+
+                <?php if ($errors): ?>
+                    <div class="alert-box">
+                        <?php foreach ($errors as $error): ?>
+                            <div><?= htmlspecialchars($error) ?></div>
+                        <?php endforeach; ?>
+                    </div>
+                <?php endif; ?>
 
                 <div class="form-field">
-                    <label for="sku">SKU</label>
-                    <input id="sku" class="chat-input" type="text" name="sku" placeholder="e.g. blackshirt-002" value="<?= htmlspecialchars($add_values['sku']) ?>" required>
+                    <label>SKU</label>
+                    <input class="chat-input" type="text" value="Auto-generated after save" readonly>
+                    <div class="field-help">The SKU is generated automatically from the product name with the next available number.</div>
                 </div>
 
                 <div class="form-field">
                     <label for="product_name">Product Name</label>
                     <input id="product_name" class="chat-input" type="text" name="product_name" placeholder="e.g. Classic Black T-Shirt" value="<?= htmlspecialchars($add_values['product_name']) ?>" required>
+                </div>
+
+                <div class="form-field">
+                    <label for="product_type">Product Type</label>
+                    <div class="product-type-fields">
+                        <select id="product_type" class="chat-input" name="product_type">
+                            <option value="">Select an existing type</option>
+                            <?php foreach ($product_types as $type): ?>
+                                <option value="<?= htmlspecialchars($type) ?>" <?= $selectedProductType === $type ? 'selected' : '' ?>>
+                                    <?= htmlspecialchars($type) ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                        <input
+                            id="product_type_new"
+                            class="chat-input"
+                            type="text"
+                            name="product_type_new"
+                            placeholder="Or type a new product type"
+                            value="<?= htmlspecialchars($customProductType) ?>"
+                        >
+                        <button type="button" class="action-btn action-btn--danger product-type-clear" id="product_type_clear">Delete</button>
+                    </div>
+                    <div class="field-help">Choose an existing type to load its name into the editable field, or type a brand-new type.</div>
                 </div>
 
                 <div class="form-field">
@@ -361,6 +593,16 @@ function adminlens_row_class(string $status): string
         </div>
     </section>
 
+    <?php if ($success_message !== ''): ?>
+        <div class="toast toast--success is-visible" id="inventory-toast" role="status" aria-live="polite">
+            <div class="toast__content">
+                <strong>Success</strong>
+                <span><?= htmlspecialchars($success_message) ?></span>
+            </div>
+            <button type="button" class="toast__close" id="inventory-toast-close" aria-label="Dismiss notification">&times;</button>
+        </div>
+    <?php endif; ?>
+
     <script>
         (function () {
             var input = document.getElementById('product_image');
@@ -381,6 +623,115 @@ function adminlens_row_class(string $status): string
                 };
                 reader.readAsDataURL(file);
             });
+        })();
+
+        (function () {
+            var typeSelect = document.getElementById('product_type');
+            var typeInput = document.getElementById('product_type_new');
+            var clearButton = document.getElementById('product_type_clear');
+            if (!typeSelect || !typeInput || !clearButton) return;
+
+            typeSelect.addEventListener('change', function () {
+                if (typeSelect.value !== '') {
+                    typeInput.value = typeSelect.value;
+                } else {
+                    typeInput.placeholder = 'Or type a new product type';
+                }
+            });
+
+            clearButton.addEventListener('click', function () {
+                typeSelect.value = '';
+                typeInput.value = '';
+                typeInput.placeholder = 'Or type a new product type';
+                typeInput.focus();
+            });
+        })();
+
+        (function () {
+            var searchInput = document.getElementById('inventory-search');
+            var typeFilter = document.getElementById('inventory-type-filter');
+            var statusFilter = document.getElementById('inventory-status-filter');
+            var rows = Array.prototype.slice.call(document.querySelectorAll('.inventory-row'));
+            var emptyState = document.getElementById('inventory-empty');
+            var results = document.getElementById('inventory-results');
+            var archivedSection = document.querySelector('.section-block');
+            var timerId = null;
+
+            if (!searchInput || !typeFilter || !statusFilter || rows.length === 0 || !emptyState || !results) return;
+
+            var updateFilters = function () {
+                var searchTerm = searchInput.value.trim().toLowerCase();
+                var selectedType = typeFilter.value.trim().toLowerCase();
+                var selectedStatus = statusFilter.value.trim().toUpperCase();
+                var activeVisible = 0;
+                var archivedVisible = 0;
+
+                rows.forEach(function (row) {
+                    var haystack = [
+                        row.getAttribute('data-sku') || '',
+                        row.getAttribute('data-name') || '',
+                        row.getAttribute('data-type') || ''
+                    ].join(' ');
+                    var rowType = row.getAttribute('data-type') || '';
+                    var rowStatus = row.getAttribute('data-status') || '';
+                    var matchesSearch = searchTerm === '' || haystack.indexOf(searchTerm) !== -1;
+                    var matchesType = selectedType === '' || rowType === selectedType;
+                    var matchesStatus = selectedStatus === '' || rowStatus === selectedStatus;
+                    var isVisible = matchesSearch && matchesType && matchesStatus;
+                    row.hidden = !isVisible;
+
+                    if (isVisible) {
+                        if (row.classList.contains('row-archived')) {
+                            archivedVisible++;
+                        } else {
+                            activeVisible++;
+                        }
+                    }
+                });
+
+                if (archivedSection) {
+                    archivedSection.hidden = archivedVisible === 0;
+                }
+
+                emptyState.hidden = activeVisible !== 0;
+
+                if (searchTerm === '' && selectedType === '' && selectedStatus === '') {
+                    results.textContent = 'Showing all active products.';
+                    return;
+                }
+
+                results.textContent = 'Showing ' + activeVisible + ' active product' + (activeVisible === 1 ? '' : 's') + '.';
+            };
+
+            var debouncedUpdate = function () {
+                window.clearTimeout(timerId);
+                timerId = window.setTimeout(updateFilters, 220);
+            };
+
+            searchInput.addEventListener('input', debouncedUpdate);
+            typeFilter.addEventListener('change', updateFilters);
+            statusFilter.addEventListener('change', updateFilters);
+        })();
+
+        (function () {
+            var toast = document.getElementById('inventory-toast');
+            if (!toast) return;
+
+            var closeButton = document.getElementById('inventory-toast-close');
+            var hideToast = function () {
+                toast.classList.remove('is-visible');
+            };
+
+            if (closeButton) {
+                closeButton.addEventListener('click', hideToast);
+            }
+
+            window.setTimeout(hideToast, 3600);
+
+            if (window.history && window.history.replaceState) {
+                var cleanUrl = window.location.pathname + window.location.hash;
+                window.history.replaceState({}, document.title, cleanUrl);
+            }
         })();
     </script>
 </body>

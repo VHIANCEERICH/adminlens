@@ -10,7 +10,7 @@ function get_status(array $product): string
         return 'LOW STOCK';
     }
 
-    return 'OK';
+    return 'AVAILABLE';
 }
 
 function get_badge_class(string $status): string
