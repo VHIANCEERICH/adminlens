@@ -6,5 +6,5 @@ define('OPENAI_MODEL', getenv('OPENAI_MODEL') ?: 'gpt-4o-mini');
 define('OLLAMA_URL', getenv('OLLAMA_URL') ?: 'http://localhost:11434');
 define('OLLAMA_MODEL', getenv('OLLAMA_MODEL') ?: 'llama3');
 define('CHARTS_DIR', __DIR__ . '/../assets/charts/');
-define('PYTHON_CMD', getenv('PYTHON_CMD') ?: 'C:\\Users\\User\\AppData\\Local\\Programs\\Python\\Python313\\python.exe');
+define('PYTHON_CMD', getenv('PYTHON_CMD') ?: 'C:\\Users\\ashya\\AppData\\Local\\Programs\\Python\\Python314\\python.exe');
 

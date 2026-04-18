@@ -7,6 +7,24 @@ require_once __DIR__ . '/helpers/data.php';
 
 session_start();
 
+$isEmbedded = (string) ($_GET['embed'] ?? $_POST['embed'] ?? '') === '1';
+
+function adminlens_chat_url(array $params = []): string {
+    global $isEmbedded;
+
+    if ($isEmbedded && !isset($params['embed'])) {
+        $params['embed'] = '1';
+    }
+
+    $query = http_build_query($params);
+    return 'chat.php' . ($query !== '' ? '?' . $query : '');
+}
+
+function adminlens_chat_redirect(array $params = []): void {
+    header('Location: ' . adminlens_chat_url($params));
+    exit;
+}
+
 
 if (!isset($_SESSION['conversations']))  $_SESSION['conversations']  = [];
 if (!isset($_SESSION['active_convo']))   $_SESSION['active_convo']   = null;
@@ -15,31 +33,58 @@ function make_convo_id(): string {
     return 'c_' . uniqid();
 }
 
+function adminlens_chat_inventory_context(array $products): string {
+    if ($products === []) {
+        return 'Inventory: none.';
+    }
+
+    $lines = [];
+    foreach ($products as $product) {
+        $lines[] = sprintf(
+            '%s | %s | stock %d | reorder %d | sold %d | price PHP %s | %s',
+            (string) ($product['sku'] ?? ''),
+            (string) ($product['product_name'] ?? 'Unnamed Product'),
+            (int) ($product['stock_on_hand'] ?? 0),
+            (int) ($product['reorder_point'] ?? 0),
+            (int) ($product['units_sold'] ?? 0),
+            number_format((float) ($product['price'] ?? 0), 2),
+            (string) ($product['status'] ?? 'OK')
+        );
+    }
+
+    return implode("\n", $lines);
+}
+
 function get_ai_reply(string $msg, PDO $pdo): string {
     try {
         $products = get_all_products();
-        $best = get_best_seller();
-        $least = get_least_sold();
-        $lowStock = get_low_stock();
-        $outOfStock = get_out_of_stock();
+        $best = $products[0] ?? [];
+        $least = $products === [] ? [] : ($products[array_key_last($products)] ?? []);
+        $lowStock = array_values(array_filter($products, static function (array $product): bool {
+            $stock = (int) ($product['stock_on_hand'] ?? 0);
+            $reorder = (int) ($product['reorder_point'] ?? 0);
+            return $stock > 0 && $stock < $reorder;
+        }));
+        $outOfStock = array_values(array_filter($products, static fn(array $product): bool => (int) ($product['stock_on_hand'] ?? 0) === 0));
 
         $system_prompt =
-            "You are AdminLens, the boutique inventory assistant.\n"
-            . "Use ONLY the inventory snapshot below. Do not invent or infer products, SKUs, prices, stock counts, reorder points, or units sold.\n"
-            . "If the user asks for a product not in the snapshot, say it is not currently in the active inventory list.\n\n"
-            . "KEY METRICS:\n"
-            . '- Best seller: ' . (string) ($best['sku'] ?? 'N/A') . ' | ' . (string) ($best['product_name'] ?? 'N/A') . ' | sold ' . (int) ($best['units_sold'] ?? 0) . "\n"
-            . '- Least purchased: ' . (string) ($least['sku'] ?? 'N/A') . ' | ' . (string) ($least['product_name'] ?? 'N/A') . ' | sold ' . (int) ($least['units_sold'] ?? 0) . "\n"
-            . '- Low stock items: ' . count($lowStock) . "\n"
-            . '- Out of stock items: ' . count($outOfStock) . "\n\n"
-            . adminlens_build_ai_inventory_context($products)
-            . "\n\nAnswer the owner using exact SKUs and product names."
-            . "\nReference stock_on_hand, reorder_point, units_sold, price, and status when relevant."
-            . "\nIf the question is a list request, include all matching products and their SKUs.";
+            "You are AdminLens, a fast boutique inventory assistant.\n"
+            . "Use only the inventory data below. Never invent products, SKUs, prices, stock, reorder points, or sales.\n"
+            . "If an item is missing from the list, say it is not in the active inventory.\n"
+            . "Keep answers concise and practical unless the user asks for detail.\n"
+            . "Always use exact SKUs and product names.\n\n"
+            . "Best seller: " . (string) ($best['sku'] ?? 'N/A') . ' | ' . (string) ($best['product_name'] ?? 'N/A') . ' | sold ' . (int) ($best['units_sold'] ?? 0) . "\n"
+            . "Least purchased: " . (string) ($least['sku'] ?? 'N/A') . ' | ' . (string) ($least['product_name'] ?? 'N/A') . ' | sold ' . (int) ($least['units_sold'] ?? 0) . "\n"
+            . 'Low stock count: ' . count($lowStock) . "\n"
+            . 'Out of stock count: ' . count($outOfStock) . "\n\n"
+            . "Inventory snapshot:\n"
+            . adminlens_chat_inventory_context($products);
 
         if (AI_PROVIDER === 'openai') {
             $body = json_encode([
-                'model' => OPENAI_MODEL, 'max_tokens' => 400,
+                'model' => OPENAI_MODEL,
+                'max_tokens' => 220,
+                'temperature' => 0.2,
                 'messages' => [
                     ['role' => 'system', 'content' => $system_prompt],
                     ['role' => 'user',   'content' => $msg],
@@ -48,7 +93,7 @@ function get_ai_reply(string $msg, PDO $pdo): string {
             $ch = curl_init('https://api.openai.com/v1/chat/completions');
             curl_setopt_array($ch, [
                 CURLOPT_RETURNTRANSFER => true, CURLOPT_POST => true,
-                CURLOPT_POSTFIELDS => $body, CURLOPT_TIMEOUT => 30,
+                CURLOPT_POSTFIELDS => $body, CURLOPT_TIMEOUT => 20,
                 CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'Authorization: Bearer ' . OPENAI_API_KEY],
             ]);
             $resp = curl_exec($ch); $st = curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
@@ -57,7 +102,12 @@ function get_ai_reply(string $msg, PDO $pdo): string {
             return $data['choices'][0]['message']['content'] ?? '';
         } else {
             $body = json_encode([
-                'model' => OLLAMA_MODEL, 'stream' => false,
+                'model' => OLLAMA_MODEL,
+                'stream' => false,
+                'options' => [
+                    'temperature' => 0.2,
+                    'num_predict' => 220,
+                ],
                 'messages' => [
                     ['role' => 'system', 'content' => $system_prompt],
                     ['role' => 'user',   'content' => $msg],
@@ -66,7 +116,7 @@ function get_ai_reply(string $msg, PDO $pdo): string {
             $ch = curl_init(OLLAMA_URL . '/api/chat');
             curl_setopt_array($ch, [
                 CURLOPT_RETURNTRANSFER => true, CURLOPT_POST => true,
-                CURLOPT_POSTFIELDS => $body, CURLOPT_TIMEOUT => 60,
+                CURLOPT_POSTFIELDS => $body, CURLOPT_TIMEOUT => 20,
                 CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
             ]);
             $resp = curl_exec($ch); $st = curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
@@ -91,7 +141,7 @@ if ($action === 'new_convo') {
         'messages'   => [],
     ];
     $_SESSION['active_convo'] = $id;
-    header('Location: chat.php'); exit;
+    adminlens_chat_redirect();
 }
 
 if ($action === 'select' && isset($_GET['id'])) {
@@ -99,7 +149,7 @@ if ($action === 'select' && isset($_GET['id'])) {
     if (isset($_SESSION['conversations'][$sel])) {
         $_SESSION['active_convo'] = $sel;
     }
-    header('Location: chat.php'); exit;
+    adminlens_chat_redirect();
 }
 
 if ($action === 'delete' && isset($_POST['id'])) {
@@ -108,7 +158,7 @@ if ($action === 'delete' && isset($_POST['id'])) {
     if ($_SESSION['active_convo'] === $del) {
         $_SESSION['active_convo'] = array_key_first($_SESSION['conversations']) ?? null;
     }
-    header('Location: chat.php'); exit;
+    adminlens_chat_redirect();
 }
 
 if ($action === 'archive' && isset($_POST['id'])) {
@@ -119,7 +169,7 @@ if ($action === 'archive' && isset($_POST['id'])) {
             $_SESSION['active_convo'] = null;
         }
     }
-    header('Location: chat.php'); exit;
+    adminlens_chat_redirect();
 }
 
 if ($action === 'delete_msg' && isset($_POST['convo_id'], $_POST['msg_index'])) {
@@ -128,7 +178,7 @@ if ($action === 'delete_msg' && isset($_POST['convo_id'], $_POST['msg_index'])) 
     if (isset($_SESSION['conversations'][$cid]['messages'][$idx])) {
         array_splice($_SESSION['conversations'][$cid]['messages'], $idx, 1);
     }
-    header('Location: chat.php'); exit;
+    adminlens_chat_redirect();
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'send') {
@@ -169,7 +219,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'send') {
             'timestamp' => date('g:i A'),
         ];
     }
-    header('Location: chat.php'); exit;
+    adminlens_chat_redirect();
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'send_ajax') {
@@ -808,9 +858,10 @@ $suggested = [
     }
   </style>
 </head>
-<body class="chat-modal-page">
+<body class="chat-modal-page<?= $isEmbedded ? ' chat-embedded' : '' ?>">
 <div class="app-wrapper">
 
+  <?php if (!$isEmbedded): ?>
   <div class="page-shell">
     <header class="site-header">
       <div class="brand">AdminLens</div>
@@ -821,6 +872,7 @@ $suggested = [
       </nav>
     </header>
   </div>
+  <?php endif; ?>
 
   <div class="messenger-shell">
 
@@ -1064,6 +1116,32 @@ $suggested = [
 
 <script>
   (function() {
+    var isEmbedded = <?= $isEmbedded ? 'true' : 'false' ?>;
+    var chatBaseUrl = <?= json_encode(adminlens_chat_url()) ?>;
+    var chatSelectUrlBase = <?= json_encode(adminlens_chat_url(['action' => 'select'])) ?>;
+
+    if (isEmbedded) {
+      Array.prototype.forEach.call(document.querySelectorAll('form'), function(form) {
+        var embedField = form.querySelector('input[name="embed"]');
+        if (!embedField) {
+          embedField = document.createElement('input');
+          embedField.type = 'hidden';
+          embedField.name = 'embed';
+          embedField.value = '1';
+          form.appendChild(embedField);
+        }
+      });
+
+      Array.prototype.forEach.call(document.querySelectorAll('a[href^="chat.php"]'), function(link) {
+        try {
+          var url = new URL(link.getAttribute('href'), window.location.href);
+          url.searchParams.set('embed', '1');
+          link.setAttribute('href', url.pathname + url.search);
+        } catch (error) {
+        }
+      });
+    }
+
     var el = document.getElementById('messages-area');
     if (el) el.scrollTop = el.scrollHeight;
   })();
@@ -1154,7 +1232,7 @@ $suggested = [
       data.set('action', 'send_ajax');
       data.set('message', message);
 
-      fetch('chat.php', {
+      fetch(chatBaseUrl, {
         method: 'POST',
         body: data,
         headers: {
