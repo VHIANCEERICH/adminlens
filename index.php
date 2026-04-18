@@ -1,9 +1,16 @@
-﻿<?php
+<?php
+
+declare(strict_types=1);
+
 require_once __DIR__ . '/config/db.php';
+require_once __DIR__ . '/config/auth.php';
 require_once __DIR__ . '/config/constants.php';
 require_once __DIR__ . '/helpers/data.php';
+require_once __DIR__ . '/helpers/orders.php';
 require_once __DIR__ . '/helpers/status.php';
 require_once __DIR__ . '/helpers/charts.php';
+
+adminlens_require_role('admin');
 
 try {
     $products = get_all_products();
@@ -13,6 +20,7 @@ try {
     $low_stock = get_low_stock();
     $out_of_stock = get_out_of_stock();
     $total_skus = count($products);
+    $pending_orders = get_pending_orders_count();
 } catch (Throwable $e) {
     header('Location: error.php?message=' . rawurlencode('Unable to load dashboard data.'));
     exit;
@@ -38,7 +46,10 @@ function adminlens_status_badge_class(string $status): string
             <nav class="site-nav">
                 <a href="index.php" class="is-active">Dashboard</a>
                 <a href="inventory.php">Inventory</a>
+                <a href="orders.php">Orders</a>
+                <a href="order_details.php">Order Details</a>
                 <a href="#charts">Charts</a>
+                <a href="auth/logout.php?redirect=admin">Logout</a>
             </nav>
         </header>
 
@@ -69,6 +80,12 @@ function adminlens_status_badge_class(string $status): string
                             <p class="kpi-label">Least Purchased</p>
                             <p class="kpi-value"><?= htmlspecialchars((string) ($least_sold['product_name'] ?? 'N/A')) ?></p>
                             <p class="kpi-meta"><?= number_format((int) ($least_sold['units_sold'] ?? 0)) ?> units sold</p>
+                        </article>
+
+                        <article class="kpi-card">
+                            <p class="kpi-label">Pending Orders</p>
+                            <p class="kpi-value"><?= number_format($pending_orders) ?></p>
+                            <p class="kpi-meta"><a href="orders.php">Review customer orders</a></p>
                         </article>
                     </section>
 

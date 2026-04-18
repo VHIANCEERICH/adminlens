@@ -1535,9 +1535,13 @@ body.chat-modal-page.chat-embedded {
   padding: 0 2px 0 0;
   border-left: 0;
   margin-top: 0;
+  flex: 1 1 auto;
   height: 100%;
+  min-height: 0;
+  max-height: 500px;
   overflow-y: auto;
   overflow-x: hidden;
+  scrollbar-gutter: stable;
 }
 
 .chart-scroll {
@@ -1545,10 +1549,12 @@ body.chat-modal-page.chat-embedded {
   overflow-y: auto;
   padding: 10px 10px 8px;
   background: #ffffff;
+  min-height: 0;
   height: 100%;
-  max-height: 100%;
+  max-height: 500px;
   border-radius: 14px;
   box-sizing: border-box;
+  scrollbar-gutter: stable both-edges;
 }
 
 .chart-pane {
@@ -1572,21 +1578,49 @@ body.chat-modal-page.chat-embedded {
 }
 
 .chart-pane__card--chart {
+  display: flex;
+  flex-direction: column;
   padding: 10px;
   overflow: hidden;
   height: 100%;
+  min-height: 0;
 }
 
 .chart-pane__card--legend {
+  display: flex;
+  flex-direction: column;
   padding: 10px 8px 10px 10px;
   overflow: hidden;
   height: 100%;
+  min-height: 0;
 }
 
 .chart-stage__main {
+  display: flex;
+  flex: 1 1 auto;
   min-width: 0;
   height: 100%;
   min-height: 0;
+}
+
+.chart-scroll::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.chart-scroll::-webkit-scrollbar-track {
+  background: #eef2f7;
+  border-radius: 999px;
+}
+
+.chart-scroll::-webkit-scrollbar-thumb {
+  background: #94a3b8;
+  border-radius: 999px;
+  border: 2px solid #eef2f7;
+}
+
+.chart-scroll::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
 }
 
 .chart-svg--ranking,
@@ -1610,9 +1644,19 @@ body.chat-modal-page.chat-embedded {
     min-height: 360px;
   }
 
+  .chart-scroll {
+    max-height: 360px;
+  }
+
   .chart-frame--viz {
     height: auto;
     min-height: 0;
+  }
+}
+
+@media (min-width: 981px) {
+  .chart-legend-shell--side {
+    max-height: 500px;
   }
 }
 
@@ -1716,9 +1760,34 @@ body.chat-modal-page.chat-embedded {
 }
 
 .line-legend {
+  height: 100%;
   max-height: 100%;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   padding-right: 4px;
   box-sizing: border-box;
+}
+
+.line-legend::-webkit-scrollbar,
+.chart-legend-shell--side::-webkit-scrollbar {
+  width: 10px;
+}
+
+.line-legend::-webkit-scrollbar-track,
+.chart-legend-shell--side::-webkit-scrollbar-track {
+  background: #eef2f7;
+  border-radius: 999px;
+}
+
+.line-legend::-webkit-scrollbar-thumb,
+.chart-legend-shell--side::-webkit-scrollbar-thumb {
+  background: #94a3b8;
+  border-radius: 999px;
+  border: 2px solid #eef2f7;
+}
+
+.line-legend::-webkit-scrollbar-thumb:hover,
+.chart-legend-shell--side::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
 }

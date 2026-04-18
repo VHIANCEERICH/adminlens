@@ -46,7 +46,10 @@ $productImage = get_product_image_url($sku);
             <nav class="site-nav">
                 <a href="index.php">Dashboard</a>
                 <a href="inventory.php">Inventory</a>
+                <a href="orders.php">Orders</a>
+                <a href="order_details.php">Order Details</a>
                 <a href="index.php#charts">Charts</a>
+                <a href="auth/logout.php?redirect=admin">Logout</a>
             </nav>
         </header>
 

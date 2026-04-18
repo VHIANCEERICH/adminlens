@@ -1,10 +1,13 @@
 <?php
 require_once __DIR__ . '/config/db.php';
+require_once __DIR__ . '/config/auth.php';
 require_once __DIR__ . '/config/constants.php';
 require_once __DIR__ . '/helpers/data.php';
 require_once __DIR__ . '/helpers/status.php';
 require_once __DIR__ . '/helpers/archive.php';
 require_once __DIR__ . '/helpers/charts.php';
+
+adminlens_require_role('admin');
 
 $errors = [];
 $success_message = '';
@@ -302,7 +305,10 @@ function adminlens_row_class(string $status): string
             <nav class="site-nav">
                 <a href="index.php">Dashboard</a>
                 <a href="inventory.php" class="is-active">Inventory</a>
+                <a href="orders.php">Orders</a>
+                <a href="order_details.php">Order Details</a>
                 <a href="index.php#charts">Charts</a>
+                <a href="auth/logout.php?redirect=admin">Logout</a>
             </nav>
         </header>
 
