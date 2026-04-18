@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 
 require_once __DIR__ . '/config/db.php';
 require_once __DIR__ . '/config/constants.php';
@@ -75,7 +75,7 @@ function get_ai_reply(string $msg, PDO $pdo): string {
             return $data['message']['content'] ?? '';
         }
     } catch (Exception $e) {
-        return 'ÃƒÂ¢Ã…Â¡Ã‚Â  Error: ' . $e->getMessage();
+        return '⚠ Error: ' . $e->getMessage();
     }
 }
 
@@ -151,7 +151,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'send') {
         $ts = date('g:i A');
 
         if (empty($_SESSION['conversations'][$cid]['messages'])) {
-            $_SESSION['conversations'][$cid]['title'] = mb_substr($msg, 0, 36) . (mb_strlen($msg) > 36 ? 'ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦' : '');
+            $_SESSION['conversations'][$cid]['title'] = mb_substr($msg, 0, 36) . (mb_strlen($msg) > 36 ? '…' : '');
         }
 
         $_SESSION['conversations'][$cid]['messages'][] = [
@@ -194,7 +194,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'send_ajax') {
         $ts = date('g:i A');
 
         if (empty($_SESSION['conversations'][$cid]['messages'])) {
-            $_SESSION['conversations'][$cid]['title'] = mb_substr($msg, 0, 36) . (mb_strlen($msg) > 36 ? 'ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦' : '');
+            $_SESSION['conversations'][$cid]['title'] = mb_substr($msg, 0, 36) . (mb_strlen($msg) > 36 ? '…' : '');
         }
 
         $_SESSION['conversations'][$cid]['messages'][] = [
@@ -650,7 +650,7 @@ $suggested = [
       color: var(--color-primary);
     }
     .suggest-chip::before {
-      content: 'ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ ';
+      content: '→ ';
       color: var(--color-primary);
       font-weight: 700;
     }
@@ -844,7 +844,7 @@ $suggested = [
             $isActive = ($c['id'] === $active_id);
             $initials = strtoupper(substr($c['title'], 0, 2));
             $lastMsg  = end($c['messages']);
-            $preview  = $lastMsg ? mb_substr($lastMsg['message'], 0, 28) . 'co' : 'No messages yet';
+            $preview  = $lastMsg ? mb_substr($lastMsg['message'], 0, 28) . '...' : 'No messages yet';
           ?>
           <div class="convo-item <?= $isActive ? 'is-active' : '' ?>">
             <a href="chat.php?action=select&id=<?= urlencode($c['id']) ?>"
@@ -859,13 +859,13 @@ $suggested = [
               <form method="POST" action="chat.php" style="margin:0;">
                 <input type="hidden" name="action" value="archive">
                 <input type="hidden" name="id"     value="<?= htmlspecialchars($c['id']) ?>">
-                <button type="submit" class="icon-btn" title="Archive">Archive</button>
+                <button type="submit" class="icon-btn" title="Archive">📦</button>
               </form>
               <form method="POST" action="chat.php" style="margin:0;"
                     onsubmit="return confirm('Delete this chat?');">
                 <input type="hidden" name="action" value="delete">
                 <input type="hidden" name="id"     value="<?= htmlspecialchars($c['id']) ?>">
-                <button type="submit" class="icon-btn icon-btn--danger" title="Delete">Delete</button>
+                <button type="submit" class="icon-btn icon-btn--danger" title="Delete">🗑</button>
               </form>
             </div>
           </div>
@@ -882,7 +882,7 @@ $suggested = [
                style="opacity: 0.65;">
             <a href="chat.php?action=select&id=<?= urlencode($c['id']) ?>"
                style="display:contents; text-decoration:none;">
-              <div class="convo-item__avatar" style="background:#334155;"><span class="chatbot-logo" aria-hidden="true"><span class="chatbot-logo__head"><span class="chatbot-logo__face"><span class="chatbot-logo__eye chatbot-logo__eye--left"></span><span class="chatbot-logo__eye chatbot-logo__eye--right"></span></span></span><span class="chatbot-logo__base"></span></span></div>
+              <div class="convo-item__avatar" style="background:#334155;">🤖</div>
               <div class="convo-item__body">
                 <div class="convo-item__name"><?= htmlspecialchars($c['title']) ?></div>
                 <div class="convo-item__time">
@@ -894,13 +894,13 @@ $suggested = [
               <form method="POST" action="chat.php" style="margin:0;">
                 <input type="hidden" name="action" value="archive">
                 <input type="hidden" name="id"     value="<?= htmlspecialchars($c['id']) ?>">
-                <button type="submit" class="icon-btn" title="Unarchive">Unarchive</button>
+                <button type="submit" class="icon-btn" title="Unarchive">📂</button>
               </form>
               <form method="POST" action="chat.php" style="margin:0;"
                     onsubmit="return confirm('Delete this chat?');">
                 <input type="hidden" name="action" value="delete">
                 <input type="hidden" name="id"     value="<?= htmlspecialchars($c['id']) ?>">
-                <button type="submit" class="icon-btn icon-btn--danger" title="Delete">Delete</button>
+                <button type="submit" class="icon-btn icon-btn--danger" title="Delete">🗑</button>
               </form>
             </div>
           </div>
@@ -915,7 +915,7 @@ $suggested = [
       <?php if ($active_convo): ?>
 
         <div class="chat-header">
-          <div class="chat-header__avatar"><span class="chatbot-logo" aria-hidden="true"><span class="chatbot-logo__head"><span class="chatbot-logo__face"><span class="chatbot-logo__eye chatbot-logo__eye--left"></span><span class="chatbot-logo__eye chatbot-logo__eye--right"></span></span></span><span class="chatbot-logo__base"></span></span></div>
+          <div class="chat-header__avatar">🤖</div>
           <div class="chat-header__info">
             <div class="chat-header__name">
               <?= htmlspecialchars($active_convo['title']) ?>
@@ -932,7 +932,7 @@ $suggested = [
               <button type="submit" class="icon-btn"
                       title="<?= $active_convo['archived'] ? 'Unarchive' : 'Archive' ?>"
                       style="width:34px;height:34px;background:#f1f5f9;color:#64748b;border-radius:8px;">
-                <?= $active_convo['archived'] ? 'ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Ãƒâ€šÃ‚Â©' : 'ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€šÃ‚Â¦' ?>
+                <?= $active_convo['archived'] ? '📂' : '📦' ?>
               </button>
             </form>
             <form method="POST" action="chat.php" style="margin:0;"
@@ -942,16 +942,17 @@ $suggested = [
               <button type="submit" class="icon-btn icon-btn--danger"
                       title="Delete conversation"
                       style="width:34px;height:34px;background:#fef2f2;border-radius:8px;">
-                ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬ÂÃƒÂ¢Ã¢â€šÂ¬Ã‹Å“
+                🗑
               </button>
             </form>
           </div>
         </div>
+
         <div class="messages-area" id="messages-area">
 
           <?php if (empty($active_convo['messages'])): ?>
             <div class="chat-empty-state">
-              <div class="empty-icon"><span class="chatbot-logo" aria-hidden="true"><span class="chatbot-logo__head"><span class="chatbot-logo__face"><span class="chatbot-logo__eye chatbot-logo__eye--left"></span><span class="chatbot-logo__eye chatbot-logo__eye--right"></span></span></span><span class="chatbot-logo__base"></span></span></div>
+              <div class="empty-icon">🤖</div>
               <div class="empty-title">Start the conversation</div>
               <div class="empty-sub">
                 Ask AdminLens anything about your boutique inventory restocking, sales trends, or promotions.
@@ -977,7 +978,7 @@ $suggested = [
             <div class="msg-row msg-row--<?= $isUser ? 'user' : 'ai' ?>">
 
               <div class="msg-avatar msg-avatar--<?= $isUser ? 'user' : 'ai' ?>">
-                <?= $isUser ? 'You' : 'ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸Ãƒâ€šÃ‚Â¤ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“' ?>
+                <?= $isUser ? 'You' : '🤖' ?>
               </div>
 
               <div class="msg-content">
@@ -991,7 +992,7 @@ $suggested = [
                     <input type="hidden" name="action"    value="delete_msg">
                     <input type="hidden" name="convo_id"  value="<?= htmlspecialchars($active_convo['id']) ?>">
                     <input type="hidden" name="msg_index" value="<?= $idx ?>">
-                    <button type="submit" class="msg-delete-btn" title="Delete message">Delete</button>
+                    <button type="submit" class="msg-delete-btn" title="Delete message">🗑</button>
                   </form>
                 </div>
               </div>
@@ -1015,7 +1016,7 @@ $suggested = [
                 placeholder="Message AdminLens..."
                 required
               ><?= $prefill ?></textarea>
-              <button type="submit" class="send-btn" title="Send" id="send-btn">Send</button>
+              <button type="submit" class="send-btn" title="Send" id="send-btn">&#9658;</button>
             </div>
             <div class="typing-status" id="typing-status" aria-live="polite"></div>
           </form>
@@ -1038,7 +1039,7 @@ $suggested = [
       <?php else: ?>
 
         <div class="no-convo-panel">
-          <div class="no-convo-icon">ðŸ¤–</div>
+          <div class="no-convo-icon">🤖</div>
           <div style="font-size:1.125rem; font-weight:600; color:var(--color-text);">
             AdminLens AI Assistant
           </div>
@@ -1086,7 +1087,7 @@ $suggested = [
     row.className = 'thinking-row';
     row.id = 'thinking-row';
     row.innerHTML = ''
-      + '<div class="msg-avatar msg-avatar--ai">ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸Ãƒâ€šÃ‚Â¤ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“</div>'
+      + '<div class="msg-avatar msg-avatar--ai">🤖</div>'
       + '<div class="thinking-bubble">'
       + '  <span>AdminLens is thinking</span>'
       + '  <span class="thinking-dots"><span></span><span></span><span></span></span>'
@@ -1102,7 +1103,7 @@ $suggested = [
     row.className = 'msg-row msg-row--' + (role === 'user' ? 'user' : 'ai');
     row.innerHTML = ''
       + '<div class="msg-avatar msg-avatar--' + (role === 'user' ? 'user' : 'ai') + '">'
-      +   (role === 'user' ? 'You' : 'ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸Ãƒâ€šÃ‚Â¤ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“')
+      +   (role === 'user' ? 'You' : '🤖')
       + '</div>'
       + '<div class="msg-content">'
       + '  <div class="msg-bubble msg-bubble--' + (role === 'user' ? 'user' : 'ai') + '">'
@@ -1180,7 +1181,7 @@ $suggested = [
       .finally(function() {
         ta.disabled = false;
         sendBtn.disabled = false;
-        sendBtn.textContent = 'ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¾Ãƒâ€šÃ‚Â¤';
+        sendBtn.innerHTML = '&#9658;';
         if (typingStatus) typingStatus.textContent = '';
       });
     });

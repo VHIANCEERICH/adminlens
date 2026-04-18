@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/status.php';
@@ -159,7 +159,7 @@ function adminlens_build_ai_inventory_context(array $products): string
     $lines = [];
     foreach ($products as $product) {
         $lines[] = sprintf(
-            '- SKU %s | %s | stock %d | reorder %d | sold %d | price ₱%s | status %s',
+            '- SKU %s | %s | stock %d | reorder %d | sold %d | price PHP %s | status %s',
             (string) ($product['sku'] ?? ''),
             (string) ($product['product_name'] ?? 'Unnamed Product'),
             (int) ($product['stock_on_hand'] ?? 0),
@@ -189,3 +189,4 @@ function get_product_image_url(string $sku): ?string
 
     return null;
 }
+

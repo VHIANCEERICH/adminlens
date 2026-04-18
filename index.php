@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 require_once __DIR__ . '/config/db.php';
 require_once __DIR__ . '/config/constants.php';
 require_once __DIR__ . '/helpers/data.php';
@@ -6,7 +6,6 @@ require_once __DIR__ . '/helpers/status.php';
 require_once __DIR__ . '/helpers/charts.php';
 
 try {
-    generate_all_charts();
     $products = get_all_products();
     $best_seller = get_best_seller();
     $least_sold = get_least_sold();
@@ -22,19 +21,6 @@ try {
 function adminlens_status_badge_class(string $status): string
 {
     return 'badge ' . get_badge_class($status);
-}
-
-function adminlens_card_class(array $product, array $bestSeller, array $leastSold): string
-{
-    if (($product['sku'] ?? '') === ($bestSeller['sku'] ?? '')) {
-        return 'chart-card chart-card-best';
-    }
-
-    if (($product['sku'] ?? '') === ($leastSold['sku'] ?? '')) {
-        return 'chart-card chart-card-least';
-    }
-
-    return 'chart-card';
 }
 ?>
 <!DOCTYPE html>
@@ -88,24 +74,53 @@ function adminlens_card_class(array $product, array $bestSeller, array $leastSol
 
                     <section class="section-block" id="charts">
                         <h2 class="section-title">Product Performance Charts</h2>
-                        <div class="chart-grid">
-                            <?php foreach ($products as $product): ?>
-                                <article class="<?= adminlens_card_class($product, $best_seller, $least_sold) ?>">
-                                    <h3 class="chart-card-title"><?= htmlspecialchars((string) ($product['product_name'] ?? 'Unnamed Product')) ?></h3>
-                                    <div class="chart-card-meta">
-                                        <p class="sku"><?= htmlspecialchars((string) ($product['sku'] ?? '')) ?></p>
-                                        <span class="<?= adminlens_status_badge_class((string) ($product['status'] ?? 'OK')) ?>">
-                                            <?= htmlspecialchars((string) ($product['status'] ?? 'OK')) ?>
-                                        </span>
-                                    </div>
-                                    <div class="chart-frame">
-                                        <img
-                                            src="assets/charts/<?= rawurlencode((string) ($product['sku'] ?? 'product')) ?>_chart.png"
-                                            alt="<?= htmlspecialchars((string) ($product['product_name'] ?? 'Product')) ?> chart"
-                                        >
-                                    </div>
-                                </article>
-                            <?php endforeach; ?>
+                        <div class="chart-switcher" role="tablist" aria-label="Product charts">
+                            <button type="button" class="chart-switcher__btn is-active" data-chart-target="chart-ranking" aria-controls="chart-ranking" aria-selected="true">Sales ranking</button>
+                            <button type="button" class="chart-switcher__btn" data-chart-target="chart-stock" aria-controls="chart-stock" aria-selected="false">Stock share</button>
+                            <button type="button" class="chart-switcher__btn" data-chart-target="chart-value" aria-controls="chart-value" aria-selected="false">Inventory value</button>
+                        </div>
+                        <div class="chart-panels">
+                            <article class="chart-card chart-card-best chart-panel is-active" id="chart-ranking" role="tabpanel">
+                                <h3 class="chart-card-title">Sales ranking</h3>
+                                <div class="chart-card-meta">
+                                    <p class="sku">Units sold - best seller to least purchased</p>
+                                    <span class="badge badge-ok">Ranking</span>
+                                </div>
+                                <div class="chart-frame chart-frame--viz">
+                                    <?= adminlens_render_chart([
+                                        'chart_type' => 'ranking',
+                                        'products' => $products,
+                                    ]) ?>
+                                </div>
+                            </article>
+
+                            <article class="chart-card chart-panel" id="chart-stock" role="tabpanel" hidden>
+                                <h3 class="chart-card-title">Stock share</h3>
+                                <div class="chart-card-meta">
+                                    <p class="sku">Current stock quantities across all products</p>
+                                    <span class="badge badge-ok">Availability</span>
+                                </div>
+                                <div class="chart-frame chart-frame--viz">
+                                    <?= adminlens_render_chart([
+                                        'chart_type' => 'stock',
+                                        'products' => $products,
+                                    ]) ?>
+                                </div>
+                            </article>
+
+                            <article class="chart-card chart-card-least chart-panel" id="chart-value" role="tabpanel" hidden>
+                                <h3 class="chart-card-title">Inventory value</h3>
+                                <div class="chart-card-meta">
+                                    <p class="sku">Inventory value per product</p>
+                                    <span class="badge badge-low">Value</span>
+                                </div>
+                                <div class="chart-frame chart-frame--viz">
+                                    <?= adminlens_render_chart([
+                                        'chart_type' => 'value',
+                                        'products' => $products,
+                                    ]) ?>
+                                </div>
+                            </article>
                         </div>
                     </section>
 
@@ -127,7 +142,6 @@ function adminlens_card_class(array $product, array $bestSeller, array $leastSol
                         </section>
                     <?php endif; ?>
                 </div>
-
             </div>
         </main>
     </div>
@@ -136,5 +150,33 @@ function adminlens_card_class(array $product, array $bestSeller, array $leastSol
         <span class="assistant-fab__icon"><span class="chatbot-logo" aria-hidden="true"><span class="chatbot-logo__head"><span class="chatbot-logo__face"><span class="chatbot-logo__eye chatbot-logo__eye--left"></span><span class="chatbot-logo__eye chatbot-logo__eye--right"></span></span></span><span class="chatbot-logo__base"></span></span></span>
         <span class="assistant-fab__label">Ask AdminLens</span>
     </a>
+    <script>
+        (function () {
+            const buttons = Array.from(document.querySelectorAll('.chart-switcher__btn'));
+            const panels = Array.from(document.querySelectorAll('.chart-panel'));
+
+            function activate(targetId) {
+                buttons.forEach((button) => {
+                    const isActive = button.dataset.chartTarget === targetId;
+                    button.classList.toggle('is-active', isActive);
+                    button.setAttribute('aria-selected', isActive ? 'true' : 'false');
+                });
+
+                panels.forEach((panel) => {
+                    const isActive = panel.id === targetId;
+                    panel.classList.toggle('is-active', isActive);
+                    panel.hidden = !isActive;
+                });
+            }
+
+            buttons.forEach((button) => {
+                button.addEventListener('click', () => activate(button.dataset.chartTarget));
+            });
+
+            if (buttons.length > 0) {
+                activate(buttons[0].dataset.chartTarget);
+            }
+        })();
+    </script>
 </body>
 </html>

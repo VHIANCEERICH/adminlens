@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 require_once __DIR__ . '/config/db.php';
 require_once __DIR__ . '/config/constants.php';
 require_once __DIR__ . '/helpers/data.php';
@@ -8,7 +8,6 @@ require_once __DIR__ . '/helpers/charts.php';
 $sku = (string) ($_GET['sku'] ?? '');
 
 try {
-    generate_all_charts();
     $product = get_product_by_sku($sku);
 
     if (!$product) {
@@ -102,17 +101,19 @@ $productImage = get_product_image_url($sku);
                 </section>
 
                 <section class="detail-panel">
-                    <div class="chart-frame">
-                        <img
-                            src="assets/charts/<?= rawurlencode($sku) ?>_chart.png"
-                            alt="<?= htmlspecialchars((string) ($product['product_name'] ?? 'Product')) ?> performance chart"
-                            style="width:100%; border: 1px solid var(--color-border);"
-                        >
+                    <div class="chart-frame chart-frame--viz">
+                        <?= adminlens_render_chart([
+                            'chart_type' => 'product',
+                            'sku' => (string) ($product['sku'] ?? ''),
+                            'product_name' => (string) ($product['product_name'] ?? ''),
+                            'stock_on_hand' => (int) ($product['stock_on_hand'] ?? 0),
+                            'reorder_point' => (int) ($product['reorder_point'] ?? 0),
+                            'units_sold' => (int) ($product['units_sold'] ?? 0),
+                            'rank' => $is_best ? 'best' : ($is_least ? 'least' : 'normal'),
+                        ]) ?>
                     </div>
                     <p class="chart-caption">
-                        Green bar = units sold · Blue bar = stock on hand
-                        <br>
-                        Dashed line = reorder point
+                        Green = best seller state, blue = stock on hand, dashed red line = reorder point.
                     </p>
                 </section>
             </div>
