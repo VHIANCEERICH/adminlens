@@ -8,3 +8,8 @@ define('OLLAMA_CONNECT_TIMEOUT', 10);
 define('OLLAMA_RESPONSE_TIMEOUT', 120);
 define('CHARTS_DIR', __DIR__ . '/../assets/charts/');
 define('PYTHON_CMD', 'python');
+define('FIREBASE_API_KEY', '');
+define('FIREBASE_AUTH_DOMAIN', '');
+define('FIREBASE_PROJECT_ID', '');
+define('FIREBASE_APP_ID', '');
+define('FIREBASE_MESSAGING_SENDER_ID', '');
